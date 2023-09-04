@@ -24,18 +24,18 @@ def create_table():
     """)
 
 
-def save(data):
-    result_dict = check_existence(data)
+def save_user(email, api_key):
+    result_dict = check_existence(email)
     if not result_dict["result"]:
         cursor.execute("""
         INSERT INTO Users (
             email,
             api_key
             ) VALUES (?,?)
-        """, (data["email"], data["key"]))
+        """, (email, api_key))
         connection.commit()
         result_dict["result"] = True
-        result_dict["object"] = check_existence(data)["object"]
+        result_dict["object"] = check_existence(email)["object"]
         result_dict["message"] = "Usuário cadastrado com sucesso!!!"
     else:
         result_dict["result"] = False
@@ -45,22 +45,19 @@ def save(data):
     return result_dict
 
 
-def check_existence(data):
-    user_email = data["email"]
+def check_existence(email):
+    user_email = email
     cursor.execute(f"SELECT * FROM Users WHERE email=?", (user_email,))
-    rows = cursor.fetchall()
-    users_list = []
+    user = cursor.fetchone()
     result_dict = {}
-    for row in rows:
-        users_list.append(dict(row))
     result_dict["result"] = False
-    if len(users_list) > 0:
+    if user and len(user) > 0:
         result_dict["result"] = True
         result_dict["message"] = "Usuário já existe!!!"
-    result_dict["object"] = users_list
+        result_dict["object"] = dict(user)
     return result_dict
 
 
-connection = get_db_connection("data/cnpja.db")
+connection = get_db_connection("data/pycnpj.db")
 cursor = connection.cursor()
 create_table()
