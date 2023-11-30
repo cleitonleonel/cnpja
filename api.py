@@ -34,7 +34,7 @@ class Browser(object):
 
 class CnpjAPI(Browser):
 
-    def __init__(self, email='pycnpj2023@gmail.com', password='PyCnpj2023?'):
+    def __init__(self, email='pycnpj@gmail.com', password='PyCnpj2023?'):
         super().__init__()
         self.base_email = email
         self.password = password
@@ -50,17 +50,22 @@ class CnpjAPI(Browser):
     def accounts_manager(self):
         users = get_all_users()
         count = 0
+        profile = None
         if users.get("result"):
             for user in users["object"]:
                 self.api_key = user.get("api_key")
                 remaining_credits = self.check_credits()
-                if remaining_credits.get("perpetual") > 0:
+                if remaining_credits.get("perpetual", 0) > 0:
                     user["credits"] = remaining_credits
                     print("Usando conta existente: ", user)
                     return user
-            count += users[-1].id + 1
+            count += users["object"][-1]["id"] + 1
         self.current_email = f"{self.base_email.split('@')[0]}+{count}@{self.base_email.split('@')[1]}"
+        user = self.authenticate()
+        if user.get("status", "NOT_FOUND") in ["ACTIVED", "PENDING"]:
+            profile = self.get_user_profile()
         self.create_account()
+        return profile
 
     def check_credits(self):
         self.headers["Authorization"] = self.api_key
@@ -70,8 +75,9 @@ class CnpjAPI(Browser):
         return self.response.json()
 
     def create_account(self):
-        user = get_user_by_email(self.current_email)
-        if not user.get("result"):
+        profile = None
+        user_data = get_user_by_email(self.current_email)
+        if not user_data.get("result"):
             print("Criando nova conta com email: ", self.current_email)
             self.mount_url_login()
 
@@ -92,12 +98,10 @@ class CnpjAPI(Browser):
             self.headers["Origin"] = "https://cnpja.auth0.com"
             self.headers["Referer"] = self.url_login.replace("login", "signup")
             self.send_request('POST', signup_url, data=data, headers=self.headers)
-            user_profile = self.auth()
-            if user_profile.get("status") != "SUSPENDED":
-                self.api_key = user_profile.get("apiKey")
-                save_user(self.current_email, self.api_key)
-            return user_profile
-        return None
+            user = self.authenticate()
+            if user.get("status") in ["ACTIVED", "PENDING"]:
+                profile = self.get_user_profile()
+        return profile
 
     def signup_with_google(self):
         self.mount_url_login()
@@ -131,8 +135,8 @@ class CnpjAPI(Browser):
                                             headers=self.headers).json()['idToken']
         return self.auth_token
 
-    def auth(self):
-        self.mount_url_login()
+    def authenticate(self):
+        self.url_login = self.mount_url_login()
         status = "ACTIVED"
         data = {
             "state": self.url_login.split("=")[1],
@@ -148,7 +152,7 @@ class CnpjAPI(Browser):
         try:
             self.auth_token = re.findall("id_token=(.*?)$", url_auth.url)[0]
         except:
-            status = "SUSPENDED"
+            status = "SUSPENDED" if "login" not in url_auth.url else "PENDING"
         return {"status": status}
 
     def get_user_profile(self):
@@ -161,6 +165,7 @@ class CnpjAPI(Browser):
                                      headers=self.headers)
         if response.ok:
             self.api_key = response.json().get("apiKey")
+            save_user(self.current_email, self.api_key)
         return response.json()
 
     def mount_url_login(self):
@@ -169,16 +174,15 @@ class CnpjAPI(Browser):
                                  headers=self.headers).text
         soup = BeautifulSoup(html, 'html.parser')
         auth_client_id = re.findall("AUTH0_CLIENT_ID: '(.*?)',", str(soup))[1]
-        self.mounted_url_login = f"https://cnpja.auth0.com/authorize?response_type=token id_token&scope=openid " \
-                                 f"profile email&client_id={auth_client_id}&redirect_uri=https://www.cnpja.com/" \
-                                 f"callback?redirectUrl=https://www.cnpja.com/me&nonce=cnpja-website"
-        return self.get_url_login()
+        authorize_url = (f"https://cnpja.auth0.com/authorize?response_type=token%20id_token&scope=openid%20"
+                         f"profile%20email&client_id={auth_client_id}&redirect_uri=https%3A%2F%2Fcnpja.com%2F"
+                         f"callback%3FredirectUrl%3Dhttps%253A%252F%252Fcnpja.com%252Fme&nonce=cnpja-website")
+        return self.get_url_login(authorize_url)
 
-    def get_url_login(self):
-        self.url_login = self.send_request('GET',
-                                           self.mounted_url_login,
-                                           headers=self.headers).url
-        return self.url_login
+    def get_url_login(self, url_login):
+        return self.send_request('GET',
+                                 url_login,
+                                 headers=self.headers).url
 
     def get_data_auth_jwt(self):
         self.headers["origin"] = "https://cnpja.retool.com"

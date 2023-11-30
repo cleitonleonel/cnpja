@@ -49,8 +49,9 @@ def check_existence(email):
     user_email = email
     cursor.execute(f"SELECT * FROM Users WHERE email=?", (user_email,))
     user = cursor.fetchone()
-    result_dict = {}
-    result_dict["result"] = False
+    result_dict = {
+        "result": False
+    }
     if user and len(user) > 0:
         result_dict["result"] = True
         result_dict["message"] = "Usuário já existe!!!"
